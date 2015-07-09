@@ -85,12 +85,18 @@ function GetDataFromUrl(URL as string, port as integer) as string
 end function
 
 function GetDataFromUrl(URL as String, server as String, port as integer) as string
-	dim XMLData as String
+	dim data as String
 	dim xmlLoadString = "GET " & URL & " HTTP/1.0\n"
 	xmlLoadString &= "Host: " & server & "\n"
 	xmlLoadString &="\n\n\r\n\0"
-	XMLData = System.TcpSend(server, port, xmlLoadString, 1000)
-	GetDataFromUrl = XMLData
+	data = System.TcpSend(server, port, xmlLoadString, 10000)
+	' look for the start of the JSON data
+	dim startIndex = data.find("{")
+	if (startIndex == -1) then
+		startIndex = data.find("[")
+	end if
+	data.erase(0,startIndex-1)
+	GetDataFromUrl = data
 end function
 
 function LoadAndParseFromURL(url as string, port as integer) as stringMap
