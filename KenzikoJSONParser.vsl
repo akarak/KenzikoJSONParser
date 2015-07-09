@@ -1,0 +1,500 @@
+' This plugin can be used to load and parse JSON files. 
+' JSON data is transformed into a multi-level stringmap, with each object property referencable by key. 
+' In the case of JSON arrays, these are transformed into a stringmap where the array index is used as the key (ie "0","1","2" etc.).
+
+' This plugin is based in part on code by Sam Gerené
+' Copyright (c) 2015, Kenziko Ltd.
+' All rights reserved.
+' Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+' 1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+' 2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer
+' in the documentation and/or other materials provided with the distribution.
+' THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, 
+' BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. 
+' IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, 
+' OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; 
+' OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, 
+' OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+sub OnInitPlugin()
+	RegisterPlugin("KenzikoJSONParser")
+	RegisterPluginFolder("Kenziko")
+	RegisterPluginType(PLUGIN_TYPE_FUNCTION)
+end sub
+
+dim TOKEN_NONE = 0
+dim TOKEN_CURLY_OPEN = 1
+dim TOKEN_CURLY_CLOSE = 2
+dim TOKEN_SQUARE_OPEN = 3
+dim TOKEN_SQUARE_CLOSE = 4
+dim TOKEN_COLON = 5
+dim TOKEN_COMMA = 6
+dim TOKEN_STRING = 7
+dim TOKEN_NUMBER = 8
+dim TOKEN_TRUE = 9
+dim TOKEN_FALSE = 10
+dim TOKEN_NULL = 11
+
+dim gData as stringMap
+
+function GetJsonData() as stringMap
+	GetJsonData = gData
+end function
+
+function JsonDecode (json as string) as stringmap
+    dim success as boolean
+    success = true
+	gData = JsonDecode(json, success)
+    JsonDecode = gData
+end function
+
+function JsonDecode (json as string, success as boolean) as stringmap
+	dim ifNull as stringmap
+    success = true
+    if(json.Length > 0) then
+        dim index = 0
+        dim value = (stringmap)ParseValue(json, index, success)
+        JsonDecode = value
+        exit function
+    else
+        JsonDecode = ifNull
+        exit function
+    end if
+end function
+
+function SplitURL(URL as string) as stringMap
+	dim outMap as stringMap
+	dim newURL = URL
+	newURL.Substitute("http://","",true)
+	dim parts as array[string]
+	newURL.split("/",parts)
+	newURL.substitute(parts[0],"",true)
+	outMap["server"] = parts[0]
+	outMap["path"] = newURL
+	SplitURL = outMap
+end function
+
+function GetDataFromUrl(URL as string) as string
+	dim urlMap = SplitURL(URL)
+	GetDataFromUrl = GetDataFromUrl(urlMap["path"],urlMap["server"],80)
+end function
+
+function GetDataFromUrl(URL as string, port as integer) as string
+	dim urlMap = SplitURL(URL)
+	GetDataFromUrl = GetDataFromUrl(urlMap["path"],urlMap["server"],port)
+end function
+
+function GetDataFromUrl(URL as String, server as String, port as integer) as string
+	dim XMLData as String
+	dim xmlLoadString = "GET " & URL & " HTTP/1.0\n"
+	xmlLoadString &= "Host: " & server & "\n"
+	xmlLoadString &="\n\n\r\n\0"
+	XMLData = System.TcpSend(server, port, xmlLoadString, 1000)
+	GetDataFromUrl = XMLData
+end function
+
+function LoadAndParseFromURL(url as string, port as integer) as stringMap
+	dim data = GetDataFromURL(url,port)
+	LoadAndParseFromURL = jsonDecode(data)
+end function
+
+function LoadAndParseFromURL(url as string) as stringMap
+	dim data = GetDataFromURL(url)
+	LoadAndParseFromURL = jsonDecode(data)
+end function
+
+function LoadAndParseJsonFile(path as string) as stringMap
+	dim data as string
+	System.LoadTextFile(path,data)
+	LoadAndParseJsonFile = jsonDecode(data)
+end function
+
+function ParseObject (json as string, index as integer, success as boolean) as stringmap
+    dim table as stringmap
+    dim token as integer
+    dim nullreturn as stringmap
+    
+    NextToken(json, index)
+    
+    dim done = false
+    
+    Do While (done = false)
+        token = LookAhead(json, index)
+        if(token = TOKEN_NONE) then
+            success = false
+            ParseObject = nullreturn
+            exit function
+        elseif (token = TOKEN_COMMA) then
+            NextToken(json, index)
+        elseif (token = TOKEN_CURLY_CLOSE) then
+            NextToken(json, index)
+            ParseObject = table
+            exit function
+        else
+            dim name = ParseString(json, index, success)
+            if (success = false) then
+                success = false
+                ParseObject = nullreturn
+                exit function
+            end if
+            token = NextToken(json, index)
+            if(NOT token = TOKEN_COLON) then
+                success = false
+                ParseObject = nullreturn
+                exit function
+            end if
+			dim holdIndex = index
+			dim token2 = NextToken(json, holdIndex)
+			dim value = ParseValue(json, index, success)
+            if (success = false) then
+                success = false
+                ParseObject = nullreturn
+                exit function
+            end if
+			table[name] = value
+            
+        end if
+    Loop
+    ParseObject = table
+end function
+
+function ParseArray (json as string, index as integer, success as boolean) as stringmap
+    
+    dim arrayList as stringmap
+    dim nullreturn as stringmap
+    
+    NextToken(json, index)
+    
+    dim done as boolean
+    done = false
+    dim count = 0
+    Do While (done = false)
+        dim token = LookAhead(json, index)
+        if (token = TOKEN_NONE) then
+            success = false
+            ParseArray = nullreturn
+            exit function
+        elseif (token = TOKEN_COMMA) then
+            NextToken(json, index)
+        elseif (token = TOKEN_SQUARE_CLOSE) then
+            NextToken(json, index)
+            exit do
+        else
+            dim value = (variant)ParseValue(json, index, success)
+            if(success = false) then
+                ParseArray = nullreturn
+                exit function
+            end if
+			dim valueSM = (stringMap)value
+			dim keys as array[string]
+			valueSM.getKeys(keys)
+			if (keys.size > 0) then
+	            arrayList[(string)count] = valueSM
+			else
+				arrayList[(string)count] = (string)value
+			end if
+			count++
+        end if
+    Loop
+    ParseArray = arrayList
+end function
+
+function ParseValue (json as string, index as integer, success as boolean) as variant
+	dim type = LookAhead(json, index)
+	Select Case (type)
+		Case TOKEN_STRING
+			ParseValue = ParseString(json, index, success)
+			exit function
+		Case TOKEN_NUMBER
+			ParseValue = ParseNumber(json, index, success)
+			exit function
+		Case TOKEN_CURLY_OPEN
+			ParseValue = ParseObject(json, index, success)
+			exit function
+		Case TOKEN_SQUARE_OPEN
+			ParseValue = ParseArray(json, index, success)
+			exit function
+		Case TOKEN_TRUE
+            NextToken(json, index)
+            ParseValue = true
+			exit function
+		Case TOKEN_FALSE
+            NextToken(json, index)
+            ParseValue = false
+			exit function
+		Case TOKEN_NULL
+            NextToken(json, index)
+            ParseValue = null
+			exit function
+		Case TOKEN_NONE
+			exit function
+	End Select
+                                    
+    success = false
+    ParseValue = null
+end function
+
+function ParseString (json as string, index as integer, success as boolean) as string
+	dim builder as string
+	dim char as string
+	EatWhitespace(json, index)
+	char = json.GetChar(index)
+	index += 1
+	
+	dim complete = false
+	
+	Do While (complete = false)
+		if (index = json.Length) then
+			exit do
+		end if
+		char = json.GetChar(index)
+		index += 1
+		if(char = "\"") then
+			complete = true
+			exit do
+		elseif (char = "\\") then
+			if (index = json.Length) then
+				exit do
+			end if
+			char = json.GetChar(index)
+			index += 1
+			if (char = "\"") then
+				builder.Append("\"")
+			elseif (char = "\\") then
+				builder.Append("\\")
+			elseif (char = "/") then
+				builder.Append("/")
+			elseif (char = "b") then
+				builder.Append("\b")
+			elseif (char = "f") then
+				builder.Append("\f")
+			elseif (char = "n") then
+				builder.Append("\n")
+			elseif (char = "r") then
+				builder.Append("\r")
+			elseif (char = "t") then
+				builder.Append("\t")
+			elseif (char = "u") then
+				'TO DO
+			end if
+		else
+			builder.Append(char)
+		end if
+	Loop
+	if(complete = false) then
+		success = false
+		ParseString = (string)0
+		exit function
+	end if
+	ParseString = builder
+end function
+
+function ParseNumber (json as string, index as integer, success as boolean) as double
+	EatWhitespace(json, index)
+	dim lastIndex = GetLastIndexOfNumber(json, index)
+	dim charLength = (lastIndex - index) +1
+	dim number as double
+	number = (Double) json.GetSubstring(index, charLength)
+	success = (boolean) number
+	index = lastIndex + 1
+	ParseNumber = number
+end function
+
+function GetLastIndexOfNumber (json as string, index as integer) as integer
+	dim lastIndex as integer
+	for lastIndex = index to json.Length
+	if("0123456789+-.eE".Find(json.GetChar(lastIndex)) = -1) then
+		exit for
+	end if
+	next
+	GetLastIndexOfNumber = lastIndex - 1
+end function
+
+function LookAhead (json as string, index as integer) as integer
+	dim saveIndex = index
+	LookAhead = NextToken(json, saveIndex)
+end function
+
+function NextToken (json as string, index as integer) as integer
+	EatWhitespace(json, index)
+	if (index = json.Length) then
+		NextToken = TOKEN_NONE
+		exit function
+	end if
+	
+	dim c = json.GetChar(index)
+	index += 1
+	Select Case c
+		Case "{"
+			NextToken = TOKEN_CURLY_OPEN
+			exit function
+		Case "}"
+			NextToken = TOKEN_CURLY_CLOSE
+			exit function
+		Case "["
+			NextToken = TOKEN_SQUARE_OPEN
+			exit function
+		Case "]"
+			NextToken = TOKEN_SQUARE_CLOSE
+			exit function
+		Case ","
+			NextToken = TOKEN_COMMA
+			exit function
+		Case "\""
+			NextToken = TOKEN_STRING
+			exit function
+		Case "0"
+			NextToken = TOKEN_NUMBER
+			exit function
+		Case "1"
+			NextToken = TOKEN_NUMBER
+			exit function
+		Case "2"
+			NextToken = TOKEN_NUMBER
+			exit function
+		Case "3"
+			NextToken = TOKEN_NUMBER
+			exit function
+		Case "4"
+			NextToken = TOKEN_NUMBER
+			exit function
+		Case "5"
+			NextToken = TOKEN_NUMBER
+			exit function
+		Case "6"
+			NextToken = TOKEN_NUMBER
+			exit function
+		Case "7"
+			NextToken = TOKEN_NUMBER
+			exit function
+		Case "8"
+			NextToken = TOKEN_NUMBER
+			exit function
+		Case "9"
+			NextToken = TOKEN_NUMBER
+			exit function
+		Case "-"
+			NextToken = TOKEN_NUMBER
+			exit function
+		Case "."
+			NextToken = TOKEN_NUMBER
+			exit function
+		Case ":"
+			NextToken = TOKEN_COLON
+			exit function
+	End Select
+    
+	index -= 1
+	
+	dim remainingLength  = (json.Length - index)
+	' redo these if statements
+	DIM jsonFive = json.GetSubstring(index, 5)
+	jsonFive.MakeLower()
+	DIM jsonFour = json.GetSubstring(index, 4)
+	jsonFour.MakeLower()
+	if(jsonFive == "false") then
+		index +=5
+		NextToken = TOKEN_FALSE
+		exit function
+    elseif(jsonFour == "true") then
+		index +=4
+		NextToken = TOKEN_TRUE
+		exit function
+	elseif(jsonFour == "null") then
+		index +=4
+		NextToken = TOKEN_NULL
+		exit function
+	end if
+	
+	NextToken = TOKEN_NONE
+end function
+
+sub EatWhitespace (json as string, index as integer)
+	for index = index to json.Length
+		if(" \t\n\r".find(json.GetChar(index)) = -1)then
+			exit sub
+		end if
+	next
+end sub
+
+function GetStringMapPropertyByPath(path as string) as StringMap
+	GetStringMapPropertyByPath = GetStringMapPropertyByPath(gData, path)
+end function
+
+function GetStringMapPropertyByPath(data as StringMap, path as string) as StringMap
+	dim pathParts as array[string]
+	path.split("/",pathParts)
+	dim curMap = data
+	for each part in pathParts
+		curMap = (stringMap)curMap[part]
+	next
+	GetStringMapPropertyByPath = curMap
+end function
+
+function GetStringPropertyByPath(path as string) as string
+	GetStringPropertyByPath = GetStringPropertyByPath(gData, path)
+end function
+
+function GetStringPropertyByPath(data as StringMap, path as string) as string
+	dim pathParts as array[string]
+	path.split("/",pathParts)
+	dim curMap = data
+	dim count = 0
+	dim outString = ""
+	for each part in pathParts
+		if (count == pathParts.ubound) then
+			outString = (string)curMap[part]
+		else
+			curMap = (stringMap)curMap[part]		
+		end if
+		count++
+	next
+	GetStringPropertyByPath = outString
+end function
+
+
+function IndexParsedJson(indexing as string) as string
+	IndexParsedJson = IndexParsedJson(gData,indexing)
+end function
+
+function IndexParsedJson(passedData as stringMap, indexing as string) as string
+	dim result = passedData
+	dim returnValue as string
+	dim myIndexes as array[string]
+	indexing.split("]", myIndexes)
+	dim i as integer
+	for i=0 to myIndexes.ubound
+		dim index = 0
+		if(NOT myIndexes[i] == "") then
+			myIndexes[i].erase(0,1)
+			if(i < myIndexes.Size-2) then
+				dim resultHolder = (stringmap) result[myIndexes[i]]
+				result = resultHolder
+			else
+				dim resultHolder = (string) result[myIndexes[i]]
+				returnValue = resultHolder
+			end if
+		end if
+	next
+	IndexParsedJson = returnValue
+end function
+
+sub OnInit()
+end sub
+
+sub OnInitParameters()
+	RegisterInfoText("This plugin can be used to load and parse JSON files. JSON data is transformed into a multi-level stringmap, with each object property referencable by key. In the case of JSON arrays, these are transformed into a stringmap where the array index is used as the key (ie \"0\",\"1\",\"2\" etc.).\n\nUse the following in your script. You will need to reference the plugin as a function plugin, and this will depend on where it is in the Tree. This example would work in the scene script.\n\n\' Find the container with the plugin on it\ndim jsonPlugin = findContainer(\"KenzikoJSONParser\").getFunctionPluginInstance\njsonPlugin.LoadAndParseJsonFile(\"path/to/json/file\")\n' How to access the data:\n\' Assuming the data looks like {\"prop1\":\"value1\",\"prop2\":{\"prop3\":\"value2\"}}\n\' You can get the value for property2 like this:\ndim myStringValue = (string)jsonPlugin.GetStringPropertyByPath(\"prop2/prop3\")\n\' myStringValue will be set to \"value2\"\n\nThis plugin is based in part on code by Sam Gerené\n\nCopyright (c) 2015, Kenziko Ltd.\nAll rights reserved.\nRedistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:\n\n1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.\n\n2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.\n\nTHIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS \"AS IS\" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.")
+	RegisterParameterText("txtJSON", "", 400, 100)
+	RegisterPushButton("btnParse","Parse",0)
+end sub
+
+sub OnExecAction(buttonId As Integer)
+	select case buttonId
+		case 0
+		dim data = GetParameterString("txtJSON")
+		dim myResult = (stringmap) JsonDecode(data)
+	end select
+end sub
+
+
+
