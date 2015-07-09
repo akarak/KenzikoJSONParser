@@ -12,7 +12,7 @@ This example would work in the scene script.
 
 ' Begin example
 ' Find the container with the plugin on it
-dim jsonPlugin = findContainer("KenzikoJSONParser").getFunctionPluginInstance("KenzikoJSONParser")
+dim jsonPlugin = findContainer("KenzikoJSONParser").getFunctionPluginInstance("KenzikoJSONParser").script
 jsonPlugin.LoadAndParseJsonFile("path/to/json/file")
 
 ' How to access the data:
