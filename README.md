@@ -43,3 +43,7 @@ LoadAndParseFromURL(url as string)
 Which will retrieve the JSON from the web and then parse it and return the StringMap. 
 
 Please import the TestArchive.via for a better test example.
+
+If you need support, please send an email to info@kenziko.com 
+
+Please visit http://www.kenziko.com for more about us, our products and our services.
