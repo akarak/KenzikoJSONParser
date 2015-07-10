@@ -11,15 +11,20 @@ You will need to reference the plugin as a function plugin, and this will depend
 This example would work in the scene script.
 
 ' Begin example
+
 ' Find the container with the plugin on it
 dim jsonPlugin = findContainer("KenzikoJSONParser").getFunctionPluginInstance("KenzikoJSONParser").script
 jsonPlugin.LoadAndParseJsonFile("path/to/json/file")
 
 ' How to access the data:
+
 ' Assuming the data looks like {"prop1":"value1","prop2":{"prop3":"value2"}}
+
 ' You can get the value for property2 like this:
+
 dim myStringValue = (string)jsonPlugin.GetStringPropertyByPath("prop2/prop3")
 ' myStringValue will be set to "value2"
+
 ' End example
 
 You can also Load JSON direct from URLs using the following:
