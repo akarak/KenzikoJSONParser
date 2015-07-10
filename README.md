@@ -33,3 +33,5 @@ You can also Load JSON direct from URLs using the following:
 LoadAndParseFromURL(url as string)
 
 Which will retrieve the JSON from the web and then parse it and return the StringMap. 
+
+Please import the TestArchive.via for a better test example.
