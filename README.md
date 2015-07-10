@@ -23,6 +23,7 @@ jsonPlugin.LoadAndParseJsonFile("path/to/json/file")
 ' You can get the value for property2 like this:
 
 dim myStringValue = (string)jsonPlugin.GetStringPropertyByPath("prop2/prop3")
+
 ' myStringValue will be set to "value2"
 
 ' End example
