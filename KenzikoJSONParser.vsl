@@ -301,7 +301,7 @@ function ParseNumber (json as string, index as integer, success as boolean) as d
 	dim charLength = (lastIndex - index) +1
 	dim number as double
 	number = (Double) json.GetSubstring(index, charLength)
-	success = (boolean) number
+'	success = (boolean) number
 	index = lastIndex + 1
 	ParseNumber = number
 end function
